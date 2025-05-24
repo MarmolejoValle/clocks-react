@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Rex Runner - Chrome Dino Game</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="200"></canvas>
+        <div class="game-over hidden">
+            <h2>Game Over!</h2>
+            <p>Puntuación: <span id="final-score">0</span></p>
+            <button id="restart-btn">Reiniciar</button>
+        </div>
+        <div class="hud">
+            <div class="score">HI <span id="high-score">00000</span> <span id="current-score">00000</span></div>
+        </div>
+    </div>
+    
+    <div class="instructions">
+        <p>Presiona <strong>ESPACIO</strong> para saltar • <strong>↓</strong> para agacharse</p>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/dino.js"></script>
+    <script src="js/obstacle.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
