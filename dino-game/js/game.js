@@ -3,6 +3,7 @@ class Game {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.dino = new Dinosaur(50, GAME_CONFIG.GROUND_Y);
+        this.cameraX = 0;
         this.obstacles = [];
         this.score = 0;
         this.gameSpeed = GAME_CONFIG.GAME_SPEED;
@@ -11,13 +12,11 @@ class Game {
 
         this.keys = {};
         this.socket = socket;
-        this.otherPlayers = {}; // Estado de jugadores remotos
+        this.otherPlayers = {};
 
         this.setupSocketListeners();
-        
         this.setupEventListeners();
         this.gameLoop();
-
         this.updateHUD();
     }
 
@@ -29,110 +28,143 @@ class Game {
                 }
             });
         });
-    
+
         this.socket.on('newPlayer', (player) => {
-            this.otherPlayers[player.id] = player;
+            if (player.id !== this.socket.id) {
+                this.otherPlayers[player.id] = player;
+            }
         });
-    
+
         this.socket.on('playerMoved', (player) => {
             if (this.otherPlayers[player.id]) {
                 this.otherPlayers[player.id].x = player.x;
                 this.otherPlayers[player.id].y = player.y;
             }
         });
-    
+
         this.socket.on('playerDisconnected', (id) => {
             delete this.otherPlayers[id];
         });
-    
+
         this.socket.on('playerDied', ({ id }) => {
             if (this.otherPlayers[id]) {
                 this.otherPlayers[id].alive = false;
             }
         });
-    
-        // ⬇️ Nuevo evento para iniciar juego desde el servidor
+
         this.socket.on('startGame', () => {
             const waitingDiv = document.getElementById('waiting-message');
-            if (waitingDiv) waitingDiv.style.display = 'none'; // ⬅️ Oculta el mensaje
+            if (waitingDiv) waitingDiv.style.display = 'none';
             this.startGame();
         });
+
         this.socket.on('newObstacle', (obstacleData) => {
             const obstacle = new Obstacle(obstacleData.x, obstacleData.y);
             obstacle.id = obstacleData.id;
             this.obstacles.push(obstacle);
         });
+
         this.socket.on('updateScoreboard', (players) => {
             this.updateScoreboard(players);
         });
+
+        this.socket.on('playerStateUpdate', (players) => {
+            if (players[this.socket.id]) {
+                const self = players[this.socket.id];
+                this.dino.x = self.x;
+                this.dino.y = self.y;
+
+                // Detectar si el jugador murió ahora y no lo había detectado antes
+                if (this.dino.alive && !self.alive) {
+                    this.endGame();
+                }
+
+                this.dino.alive = self.alive;
+                this.score = self.score;
+            }
+
+            Object.entries(players).forEach(([id, data]) => {
+                if (id !== this.socket.id) {
+                    if (!this.otherPlayers[id]) {
+                        this.otherPlayers[id] = data;
+                    } else {
+                        this.otherPlayers[id].x = data.x;
+                        this.otherPlayers[id].y = data.y;
+                        this.otherPlayers[id].alive = data.alive;
+                    }
+                }
+            });
+        });
+
         this.socket.on('restartGame', (players) => {
-            // Reinicia jugador local
             this.dino = new Dinosaur(50, GAME_CONFIG.GROUND_Y);
             this.obstacles = [];
+            this.cameraX = 0;
             this.score = 0;
             this.gameSpeed = GAME_CONFIG.GAME_SPEED;
             this.gameOver = false;
             this.isRunning = false;
-            this.otherPlayers = players;
-        
+
+            // Reconstruir otherPlayers correctamente
+            this.otherPlayers = {};
+            Object.entries(players).forEach(([id, data]) => {
+                if (id !== this.socket.id) {
+                    this.otherPlayers[id] = {
+                        id,
+                        x: data.x,
+                        y: data.y,
+                        alive: data.alive,
+                        color: data.color,
+                        score: data.score
+                    };
+                }
+            });
+
             document.querySelector('.game-over').classList.add('hidden');
             document.querySelector('.instructions').style.opacity = '1';
-        
-            // Opcional: mensaje visual de reinicio
+
             const msg = document.getElementById('waiting-message');
             if (msg) {
                 msg.textContent = 'Reiniciando juego...';
                 msg.style.display = 'block';
             }
-        
+
             setTimeout(() => {
                 if (msg) msg.style.display = 'none';
                 this.startGame();
-            }, 500); // pequeño retraso visual
+            }, 500);
         });
-        
     }
-    
-    sendPlayerMovement() {
+
+    sendInput(action) {
         if (!this.gameOver) {
-            this.socket.emit('playerMovement', {
-                x: this.dino.x,
-                y: this.dino.y
-            });
+            this.socket.emit('playerInput', { action });
         }
     }
 
     setupEventListeners() {
         document.addEventListener('keydown', (e) => {
             this.keys[e.code] = true;
-            
             if (e.code === 'Space') {
                 e.preventDefault();
-                /**
-                if (!this.isRunning && !this.gameOver) {
-                    this.startGame();
-                } else */ if (!this.gameOver) {
-                    this.dino.jump();
+                if (!this.gameOver) {
+                    this.sendInput('jump');
                 } else {
                     this.restart();
                 }
             }
             if (e.code === 'ArrowDown' && this.isRunning && !this.gameOver) {
-                this.dino.duck();
+                this.sendInput('duck');
             }
         });
 
         document.addEventListener('keyup', (e) => {
             this.keys[e.code] = false;
             if (e.code === 'ArrowDown') {
-                this.dino.stopDucking();
+                this.sendInput('stopDuck');
             }
         });
-/* 
-        document.getElementById('restart-btn').addEventListener('click', () => {
-            this.restart();
-        });
-*/
+
         this.canvas.addEventListener('click', () => {
             if (!this.isRunning && !this.gameOver) {
                 this.startGame();
@@ -143,44 +175,25 @@ class Game {
     }
 
     startGame() {
+        this.dino.x = 50;
+        this.cameraX = 0;
         this.isRunning = true;
         this.gameOver = false;
         document.querySelector('.instructions').style.opacity = '0.5';
     }
 
     restart() {
-        this.dino = new Dinosaur(50, GAME_CONFIG.GROUND_Y);
-        this.obstacles = [];
-        this.score = 0;
-        this.gameSpeed = GAME_CONFIG.GAME_SPEED;
-        this.isRunning = true;
-        this.gameOver = false;
-        document.querySelector('.game-over').classList.add('hidden');
-        document.querySelector('.instructions').style.opacity = '0.5';
-        this.updateHUD();
+        this.socket.emit('restartRequest');
     }
-
 
     update() {
         if (!this.isRunning || this.gameOver) return;
-    
-        this.dino.update();
-    
-        this.obstacles.forEach(obstacle => {
-            obstacle.update();
-            obstacle.speed = this.gameSpeed;
-        });
-    
-        this.obstacles = this.obstacles.filter(obstacle => !obstacle.isOffScreen());
-        this.checkCollisions();
-    
-        this.score += 0.1;
-        this.gameSpeed = GAME_CONFIG.GAME_SPEED + (this.score * 0.001);
-        this.socket.emit('updateScore', this.score);
+
+        // No actualizar dino localmente porque el servidor lo controla
+        this.cameraX = this.dino.x - 50;
         this.updateHUD();
-        this.sendPlayerMovement();
     }
-    
+
     updateScoreboard(players) {
         const container = document.getElementById('scoreboard');
         const entries = Object.values(players)
@@ -194,15 +207,6 @@ class Game {
             .join('');
         container.innerHTML = `<strong>Marcador</strong>${entries}`;
     }
-    checkCollisions() {
-        const dinoBounds = this.dino.getBounds();
-        this.obstacles.forEach(obstacle => {
-            const obstacleBounds = obstacle.getBounds();
-            if (Utils.checkCollision(dinoBounds, obstacleBounds)) {
-                this.endGame();
-            }
-        });
-    }
 
     endGame() {
         this.gameOver = true;
@@ -212,9 +216,6 @@ class Game {
         document.querySelector('.game-over').classList.remove('hidden');
         document.querySelector('.instructions').style.opacity = '1';
         this.updateHUD();
-    
-        // Notificar al servidor que el jugador murió
-        this.socket.emit('playerDied');
     }
 
     updateHUD() {
@@ -227,13 +228,25 @@ class Game {
         this.ctx.fillStyle = '#535353';
         this.ctx.fillRect(0, GAME_CONFIG.GROUND_Y + GAME_CONFIG.DINO_HEIGHT, this.canvas.width, 2);
 
-        // Dibujar tu dinosaurio
-        this.dino.draw(this.ctx);
+        this.ctx.save();
+        this.ctx.translate(-this.cameraX, 0);
 
-        // Dibujar obstáculos
+        this.dino.draw(this.ctx);
         this.obstacles.forEach(obstacle => obstacle.draw(this.ctx));
 
-     
+        Object.values(this.otherPlayers).forEach(player => {
+            if (player.alive === false) {
+                this.ctx.fillStyle = 'red';
+                this.ctx.fillRect(player.x, player.y, GAME_CONFIG.DINO_WIDTH, GAME_CONFIG.DINO_HEIGHT);
+                this.ctx.fillRect(player.x + 25, player.y + 10, 4, 4);
+            } else {
+                this.ctx.fillStyle = player.color;
+                this.ctx.fillRect(player.x, player.y, GAME_CONFIG.DINO_WIDTH, GAME_CONFIG.DINO_HEIGHT);
+                this.ctx.fillRect(player.x + 25, player.y + 10, 4, 4);
+            }
+        });
+
+        this.ctx.restore();
 
         if (!this.isRunning && !this.gameOver) {
             this.ctx.fillStyle = '#535353';
@@ -241,19 +254,6 @@ class Game {
             this.ctx.textAlign = 'center';
             this.ctx.fillText('Presiona ESPACIO para empezar', this.canvas.width / 2, 50);
         }
-        Object.values(this.otherPlayers).forEach(player => {
-            if (player.alive === false) {
-                // Dibujar el dinosaurio muerto (ejemplo con color rojo)
-                this.ctx.fillStyle = 'red';
-                this.ctx.fillRect(player.x  , player.y, GAME_CONFIG.DINO_WIDTH, GAME_CONFIG.DINO_HEIGHT);
-                this.ctx.fillRect(player.x + 25 , player.y + 10, 4, 4);
-            } else {
-                this.ctx.fillStyle = player.color;
-                this.ctx.fillRect(player.x , player.y, GAME_CONFIG.DINO_WIDTH, GAME_CONFIG.DINO_HEIGHT);
-                this.ctx.fillRect(player.x + 25, player.y + 10, 4, 4);
-            }
-           
-        });
     }
 
     gameLoop() {
@@ -263,9 +263,8 @@ class Game {
     }
 }
 
-// Inicializar juego y conectar socket
 window.addEventListener('load', () => {
-    // Ajusta la URL del servidor si no está en localhost:3000
     const socket = io('http://localhost:3000');
     new Game(socket);
 });
+ 
