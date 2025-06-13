@@ -10,3 +10,4 @@
 - **Santibañez Cruz Lizbeth** — 9°B  
 - **Hernandez Ruiz Alan Daniel** — 9°B  
 - **Kevin David Rodríguez Zúñiga** — 9°B
+- **Jared Adrián Juárez Bernal** — 9°B
