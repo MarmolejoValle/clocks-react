@@ -11,3 +11,4 @@
 - **Hernandez Ruiz Alan Daniel** — 9°B  
 - **Kevin David Rodríguez Zúñiga** — 9°B
 - **Marmolejo Valle Alberto** — 9°B
+- **Jared Adrián Juárez Bernal** — 9°B
